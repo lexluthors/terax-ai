@@ -33,6 +33,10 @@ import {
   copyToClipboard,
   relativePath,
   revealInFinder,
+  openSystemTerminal,
+  executeFile,
+  copyFilesToClipboard,
+  isExecutableFile,
 } from "./lib/contextActions";
 import { fileIconUrl, folderIconUrl } from "./lib/iconResolver";
 import { COMPACT_CONTENT, COMPACT_ITEM } from "./lib/menuItemClass";
@@ -205,6 +209,8 @@ export const FileExplorer = memo(
       gitDecorations,
     );
     const [selectedPath, setSelectedPath] = useState<string | null>(null);
+    const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
+    const [lastClickedPath, setLastClickedPath] = useState<string | null>(null);
     const [isSearchOpen, setIsSearchOpen] = useState(false);
     const [isSearchActive, setIsSearchActive] = useState(false);
     const searchRef = useRef<ExplorerSearchHandle>(null);
@@ -255,6 +261,44 @@ export const FileExplorer = memo(
       return out;
     }, [rows]);
 
+    const handleSelectPath = useCallback(
+      (path: string, event?: React.MouseEvent) => {
+        const ctrlKey = event?.ctrlKey || event?.metaKey;
+        const shiftKey = event?.shiftKey;
+
+        if (shiftKey && lastClickedPath) {
+          // Shift+click: 选中连续范围
+          const startIdx = entryPaths.indexOf(lastClickedPath);
+          const endIdx = entryPaths.indexOf(path);
+          if (startIdx >= 0 && endIdx >= 0) {
+            const [min, max] = [Math.min(startIdx, endIdx), Math.max(startIdx, endIdx)];
+            const rangePaths = entryPaths.slice(min, max + 1);
+            setSelectedPaths(new Set(rangePaths));
+            setSelectedPath(path);
+          }
+        } else if (ctrlKey) {
+          // Ctrl+click: 切换单个文件的选中状态
+          const newSelected = new Set(selectedPaths);
+          if (newSelected.has(path)) {
+            newSelected.delete(path);
+            if (selectedPath === path) {
+              setSelectedPath(newSelected.size > 0 ? Array.from(newSelected)[0] : null);
+            }
+          } else {
+            newSelected.add(path);
+            setSelectedPath(path);
+          }
+          setSelectedPaths(newSelected);
+        } else {
+          // 普通点击: 清空多选，只选中当前
+          setSelectedPaths(new Set([path]));
+          setSelectedPath(path);
+        }
+        setLastClickedPath(path);
+      },
+      [entryPaths, lastClickedPath, selectedPath, selectedPaths],
+    );
+
     const isDirAt = useCallback(
       (path: string): boolean | undefined => {
         const idx = entryIndexByPath.get(path);
@@ -288,6 +332,7 @@ export const FileExplorer = memo(
     useEffect(() => {
       if (selectedPath && !entryIndexByPath.has(selectedPath)) {
         setSelectedPath(null);
+        setSelectedPaths(new Set());
       }
     }, [entryIndexByPath, selectedPath]);
 
@@ -316,6 +361,7 @@ export const FileExplorer = memo(
       if (!entryIndexByPath.has(activeFilePath)) return;
       lastSyncedActivePathRef.current = activeFilePath;
       setSelectedPath(activeFilePath);
+      setSelectedPaths(new Set([activeFilePath]));
       requestAnimationFrame(() => scrollEntryIntoView(activeFilePath));
     }, [activeFilePath, entryIndexByPath, scrollEntryIntoView]);
 
@@ -327,6 +373,7 @@ export const FileExplorer = memo(
           if (!selectedPath && entryPaths.length > 0) {
             const first = entryPaths[0];
             setSelectedPath(first);
+            setSelectedPaths(new Set([first]));
             requestAnimationFrame(() => scrollEntryIntoView(first));
           }
         },
@@ -391,6 +438,7 @@ export const FileExplorer = memo(
         const clamped = Math.max(0, Math.min(entryPaths.length - 1, next));
         const path = entryPaths[clamped];
         setSelectedPath(path);
+        setSelectedPaths(new Set([path]));
         requestAnimationFrame(() => scrollEntryIntoView(path));
       };
 
@@ -429,7 +477,10 @@ export const FileExplorer = memo(
             tree.toggle(row.path);
           } else {
             const parent = row.path.slice(0, row.path.lastIndexOf("/"));
-            if (parent && parent !== rootPath) setSelectedPath(parent);
+            if (parent && parent !== rootPath) {
+              setSelectedPath(parent);
+              setSelectedPaths(new Set([parent]));
+            }
           }
           break;
         }
@@ -462,10 +513,11 @@ export const FileExplorer = memo(
               actions={rowActions}
               renameInProgress={renameInProgress}
               isSelected={selectedPath === row.path}
+              isMultiSelected={selectedPaths.has(row.path)}
               isRenaming={row.kind === "rename"}
               isDropTarget={dropTargetDir === row.path}
               onOpenFile={onOpenFile}
-              onSelectPath={setSelectedPath}
+              onSelectPath={handleSelectPath}
               gitStatusCode={row.gitStatusCode}
               gitignored={gitDecorations && row.gitignored}
             />
@@ -688,6 +740,22 @@ export const FileExplorer = memo(
                   )}
                   <ContextMenuItem
                     className={COMPACT_ITEM}
+                    onSelect={() =>
+                      void openSystemTerminal(menuTarget.path, menuTarget.isDir)
+                    }
+                  >
+                    Open in System Terminal
+                  </ContextMenuItem>
+                  {isExecutableFile(menuTarget.path, menuTarget.isDir) && (
+                    <ContextMenuItem
+                      className={COMPACT_ITEM}
+                      onSelect={() => void executeFile(menuTarget.path)}
+                    >
+                      Execute
+                    </ContextMenuItem>
+                  )}
+                  <ContextMenuItem
+                    className={COMPACT_ITEM}
                     onSelect={() => void revealInFinder(menuTarget.path)}
                   >
                     Reveal in Finder
@@ -720,6 +788,15 @@ export const FileExplorer = memo(
                     New Folder
                   </ContextMenuItem>
                   <ContextMenuSeparator />
+                  <ContextMenuItem
+                    className={COMPACT_ITEM}
+                    onSelect={() => {
+                      const paths = selectedPaths.size > 0 ? Array.from(selectedPaths) : [menuTarget.path];
+                      void copyFilesToClipboard(paths);
+                    }}
+                  >
+                    {selectedPaths.size > 0 ? `Copy Files (${selectedPaths.size})` : "Copy File"}
+                  </ContextMenuItem>
                   <ContextMenuItem
                     className={COMPACT_ITEM}
                     onSelect={() => void copyToClipboard(menuTarget.path)}

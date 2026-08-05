@@ -1,6 +1,7 @@
 pub mod background;
 pub mod ringbuffer;
 pub mod session;
+pub mod terminal;
 
 use std::collections::HashMap;
 use std::io::Read;

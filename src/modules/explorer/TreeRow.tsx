@@ -23,10 +23,11 @@ export type EntryRowProps = {
   actions: RowActions;
   renameInProgress: boolean;
   isSelected: boolean;
+  isMultiSelected?: boolean;
   isRenaming: boolean;
   isDropTarget?: boolean;
   onOpenFile: (path: string, pin?: boolean) => void;
-  onSelectPath: (path: string) => void;
+  onSelectPath: (path: string, event?: React.MouseEvent) => void;
   gitStatusCode?: GitStatusCode | null;
   gitignored?: boolean;
 };
@@ -41,6 +42,7 @@ function EntryRowImpl(props: EntryRowProps) {
     actions,
     renameInProgress,
     isSelected,
+    isMultiSelected = false,
     isRenaming,
     isDropTarget = false,
     onOpenFile,
@@ -73,11 +75,14 @@ function EntryRowImpl(props: EntryRowProps) {
     );
   }
 
-  const handleClick = () => {
+  const handleClick = (event: React.MouseEvent<HTMLButtonElement>) => {
     if (renameInProgress) return;
-    onSelectPath(path);
-    if (isDir) actions.toggle(path);
-    else onOpenFile(path);
+    onSelectPath(path, event);
+    // 只有在没有修饰键的情况下才执行打开/切换操作
+    if (!event.ctrlKey && !event.metaKey && !event.shiftKey) {
+      if (isDir) actions.toggle(path);
+      else onOpenFile(path);
+    }
   };
 
   return (
@@ -90,9 +95,11 @@ function EntryRowImpl(props: EntryRowProps) {
         "group flex h-6 w-full min-w-0 cursor-pointer items-center gap-2 rounded-sm px-1.5 text-left text-[13px] transition-colors hover:bg-accent/70",
         isSelected
           ? "bg-accent text-foreground"
-          : gitignored
-            ? "text-muted-foreground/70"
-            : "text-foreground/85",
+          : isMultiSelected
+            ? "bg-accent/50 text-foreground"
+            : gitignored
+              ? "text-muted-foreground/70"
+              : "text-foreground/85",
         isDropTarget && "bg-primary/10 ring-1 ring-inset ring-primary/60",
       )}
       style={{ paddingLeft }}
@@ -116,6 +123,7 @@ function EntryRowImpl(props: EntryRowProps) {
         className={cn(
           "min-w-0 flex-1 truncate",
           !isSelected &&
+            !isMultiSelected &&
             !gitignored &&
             gitStatusCode &&
             explorerGitTextClass(gitStatusCode),

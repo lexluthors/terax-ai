@@ -1,4 +1,5 @@
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { invoke } from "@tauri-apps/api/core";
 
 export async function copyToClipboard(text: string): Promise<void> {
   try {
@@ -20,4 +21,48 @@ export async function revealInFinder(path: string): Promise<void> {
   } catch (e) {
     console.error("revealItemInDir failed:", e);
   }
+}
+
+export async function openSystemTerminal(
+  path: string,
+  isDirectory: boolean,
+): Promise<void> {
+  try {
+    await invoke("open_system_terminal", { path, isDirectory });
+  } catch (e) {
+    console.error("openSystemTerminal failed:", e);
+    throw e;
+  }
+}
+
+export async function executeFile(path: string): Promise<void> {
+  try {
+    await invoke("execute_file", { path });
+  } catch (e) {
+    console.error("executeFile failed:", e);
+    throw e;
+  }
+}
+
+export async function copyFilesToClipboard(paths: string[]): Promise<void> {
+  try {
+    await invoke("copy_files_to_clipboard", { paths });
+  } catch (e) {
+    console.error("copyFilesToClipboard failed:", e);
+    throw e;
+  }
+}
+
+/**
+ * 检查文件是否为可执行类型
+ */
+export function isExecutableFile(filePath: string, isDir: boolean): boolean {
+  if (isDir) return false;
+  const lower = filePath.toLowerCase();
+  if (lower.endsWith(".appimage")) return true;
+  const dotIndex = lower.lastIndexOf(".");
+  if (dotIndex < 0) return false;
+  const ext = lower.slice(dotIndex);
+  const executableExts = new Set([".deb", ".apk", ".py", ".sh"]);
+  return executableExts.has(ext);
 }
