@@ -799,17 +799,22 @@ export const FileExplorer = memo(
                   </ContextMenuItem>
                   <ContextMenuItem
                     className={COMPACT_ITEM}
-                    onSelect={() => void copyToClipboard(menuTarget.path)}
+                    onSelect={() => {
+                      const paths = selectedPaths.size > 0 ? Array.from(selectedPaths) : [menuTarget.path];
+                      void copyToClipboard(paths.join("\n"));
+                    }}
                   >
-                    Copy Path
+                    {selectedPaths.size > 0 ? `Copy Paths (${selectedPaths.size})` : "Copy Path"}
                   </ContextMenuItem>
                   <ContextMenuItem
                     className={COMPACT_ITEM}
-                    onSelect={() =>
-                      void copyToClipboard(relativePath(rootPath, menuTarget.path))
-                    }
+                    onSelect={() => {
+                      const paths = selectedPaths.size > 0 ? Array.from(selectedPaths) : [menuTarget.path];
+                      const relativePaths = paths.map((p) => relativePath(rootPath, p));
+                      void copyToClipboard(relativePaths.join("\n"));
+                    }}
                   >
-                    Copy Relative Path
+                    {selectedPaths.size > 0 ? `Copy Relative Paths (${selectedPaths.size})` : "Copy Relative Path"}
                   </ContextMenuItem>
                   <ContextMenuSeparator />
                   <ContextMenuItem
