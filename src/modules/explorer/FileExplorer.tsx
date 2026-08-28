@@ -32,6 +32,7 @@ import { InlineInput } from "./InlineInput";
 import {
   copyToClipboard,
   relativePath,
+  pruneDescendantPaths,
   revealInFinder,
   openSystemTerminal,
   executeFile,
@@ -829,7 +830,17 @@ export const FileExplorer = memo(
                     variant="destructive"
                     onSelect={(e) => {
                       if (deleteConfirm) {
-                        void tree.deletePath(menuTarget.path);
+                        const targets = pruneDescendantPaths(
+                          selectedPaths.size > 0
+                            ? Array.from(selectedPaths)
+                            : [menuTarget.path],
+                        );
+                        void (async () => {
+                          for (const p of targets) {
+                            await tree.deletePath(p);
+                          }
+                          setSelectedPaths(new Set());
+                        })();
                       } else {
                         // Keep the menu open on the first click so the user
                         // can confirm; let it close normally on the second.
@@ -838,7 +849,11 @@ export const FileExplorer = memo(
                       }
                     }}
                   >
-                    {deleteConfirm ? "Click again to confirm" : "Delete"}
+                    {deleteConfirm
+                      ? "Click again to confirm"
+                      : selectedPaths.size > 0
+                        ? `Delete (${selectedPaths.size})`
+                        : "Delete"}
                   </ContextMenuItem>
                 </>
               ) : (

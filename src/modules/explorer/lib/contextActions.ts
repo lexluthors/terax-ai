@@ -15,6 +15,14 @@ export function relativePath(rootPath: string, path: string): string {
   return path;
 }
 
+// Drop paths already covered by a selected ancestor: deleting the ancestor
+// removes them too. Trailing "/" keeps /a/b from matching sibling /a/bc.
+export function pruneDescendantPaths(paths: string[]): string[] {
+  return paths.filter(
+    (p) => !paths.some((other) => other !== p && p.startsWith(`${other}/`)),
+  );
+}
+
 export async function revealInFinder(path: string): Promise<void> {
   try {
     await revealItemInDir(path);
