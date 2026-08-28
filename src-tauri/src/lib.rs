@@ -61,8 +61,13 @@ fn resolve_launch_target(entries: Vec<LaunchEntry>) -> LaunchTarget {
 }
 
 fn parse_launch_target() -> LaunchTarget {
-    let entries = std::env::args()
-        .skip(1)
+    parse_launch_target_from_args(std::env::args().skip(1).collect())
+}
+
+/// Parse launch target from a Vec<String> of args (used by single-instance callback).
+fn parse_launch_target_from_args(args: Vec<String>) -> LaunchTarget {
+    let entries = args
+        .into_iter()
         .filter(|arg| !arg.starts_with('-'))
         .filter_map(|arg| std::fs::canonicalize(arg).ok())
         .filter_map(|path| {
@@ -191,6 +196,27 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_autostart::Builder::new().build())
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            // Single instance callback: a second instance was launched with `argv`.
+            // Parse the args for files and emit them to the frontend so it can
+            // open new tabs instead of starting a new window.
+            let target = parse_launch_target_from_args(argv);
+            if !target.files.is_empty() {
+                // Authorize the parent directories so the frontend can access them.
+                if let Some(dir) = &target.dir {
+                    if let Some(registry) = app.try_state::<workspace::WorkspaceRegistry>() {
+                        let _ = registry.authorize(dir);
+                    }
+                }
+                // Emit the files to the frontend — it listens for "terax:open-file".
+                let _ = app.emit("terax:open-file", target.files);
+            }
+            // Focus the main window so the user sees the new tabs.
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_notification::init())
