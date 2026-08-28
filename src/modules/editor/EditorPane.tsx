@@ -1,8 +1,16 @@
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import { getLaunchDir } from "@/lib/launchDir";
 import { endpointIdFromCompatModel } from "@/modules/ai/config";
 import { getCustomEndpointKey, getKey } from "@/modules/ai/lib/keyring";
 import { lspFormatDocument, useLspExtension } from "@/modules/lsp";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { onKeysChanged } from "@/modules/settings/store";
+import { writeTerminalClipboard } from "@/modules/terminal/lib/terminalClipboard";
 import { acceptCompletion, startCompletion } from "@codemirror/autocomplete";
 import { redo, undo } from "@codemirror/commands";
 import {
@@ -33,6 +41,7 @@ import {
   inlineCompletion,
   triggerInlineCompletion,
 } from "./lib/autocomplete/inlineExtension";
+import { buildCopyContext } from "./lib/copyContext";
 import { diagnosticsReporter } from "./lib/diagnosticsReporter";
 import { useDiagnosticsStore } from "./lib/diagnosticsStore";
 import {
@@ -121,6 +130,7 @@ export const EditorPane = memo(
     const editorWordWrap = usePreferencesStore((s) => s.editorWordWrap);
     const languageRef = useRef<string | null>(null);
     const [langId, setLangId] = useState<string | null>(null);
+    const [ctxMenuOpen, setCtxMenuOpen] = useState(false);
     const apiKeyRef = useRef<string | null>(null);
 
     useEffect(() => {
@@ -260,6 +270,37 @@ export const EditorPane = memo(
     useEffect(() => {
       if (doc.status === "ready") applyPendingGoto();
     }, [doc.status, applyPendingGoto]);
+
+    const editorHasSelection = useCallback(() => {
+      const view = cmRef.current?.view;
+      if (!view) return false;
+      const { from, to } = view.state.selection.main;
+      return from < to;
+    }, []);
+
+    const copySelectionContext = useCallback(async () => {
+      const view = cmRef.current?.view;
+      if (!view) return;
+      const { from, to } = view.state.selection.main;
+      if (from === to) return;
+      const text = view.state.sliceDoc(from, to);
+      const startLine = view.state.doc.lineAt(from).number;
+      // Selections that end at a line start include no chars of that line.
+      const endLine = view.state.doc.lineAt(to - 1).number;
+      const base = pathRef.current.split(/[\\/]/).pop() ?? "";
+      const dot = base.lastIndexOf(".");
+      const fileExt = dot > 0 ? base.slice(dot + 1).toLowerCase() : null;
+      const out = buildCopyContext({
+        path: pathRef.current,
+        workspaceRoot: getLaunchDir(),
+        language: languageRef.current ?? fileExt,
+        text,
+        startLine,
+        endLine,
+      });
+      await writeTerminalClipboard(out);
+      toast.success("已复制上下文");
+    }, []);
 
     const extensions = useMemo(
       () => [
@@ -573,7 +614,8 @@ export const EditorPane = memo(
         );
       }
 
-      const canForce = doc.status === "toolarge" && doc.size <= FORCE_READ_LIMIT;
+      const canForce =
+        doc.status === "toolarge" && doc.size <= FORCE_READ_LIMIT;
       return (
         <div className="flex h-full flex-col items-center justify-center gap-1 px-6 text-center">
           <div className="text-sm text-foreground">
@@ -597,28 +639,53 @@ export const EditorPane = memo(
     }
 
     return (
-      <div className="flex h-full min-h-0 flex-col zoom-exempt">
-        <CodeMirror
-          ref={cmRef}
-          value={doc.content}
-          onChange={onChange}
-          theme={themeExt}
-          extensions={extensions}
-          height="100%"
-          className="flex-1 min-h-0 overflow-hidden"
-          basicSetup={{
-            lineNumbers: true,
-            highlightActiveLineGutter: true,
-            foldGutter: true,
-            bracketMatching: true,
-            closeBrackets: true,
-            autocompletion: true,
-            highlightActiveLine: true,
-            highlightSelectionMatches: true,
-            searchKeymap: true,
-          }}
-        />
-      </div>
+      <ContextMenu
+        open={ctxMenuOpen}
+        onOpenChange={(open) => {
+          if (open && !editorHasSelection()) return;
+          setCtxMenuOpen(open);
+        }}
+      >
+        <ContextMenuTrigger asChild>
+          <div
+            className="flex h-full min-h-0 flex-col zoom-exempt"
+            onContextMenuCapture={(e) => {
+              // Keep the native menu inside CM panels (search inputs).
+              const el = e.target as HTMLElement | null;
+              if (el?.closest(".cm-panel, .cm-search")) e.stopPropagation();
+            }}
+          >
+            <CodeMirror
+              ref={cmRef}
+              value={doc.content}
+              onChange={onChange}
+              theme={themeExt}
+              extensions={extensions}
+              height="100%"
+              className="flex-1 min-h-0 overflow-hidden"
+              basicSetup={{
+                lineNumbers: true,
+                highlightActiveLineGutter: true,
+                foldGutter: true,
+                bracketMatching: true,
+                closeBrackets: true,
+                autocompletion: true,
+                highlightActiveLine: true,
+                highlightSelectionMatches: true,
+                searchKeymap: true,
+              }}
+            />
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent className="min-w-44 rounded-2xl p-1">
+          <ContextMenuItem
+            className="rounded-xl px-2.5 py-1.5 text-xs gap-2"
+            onSelect={() => void copySelectionContext()}
+          >
+            复制上下文
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
     );
   }),
 );
