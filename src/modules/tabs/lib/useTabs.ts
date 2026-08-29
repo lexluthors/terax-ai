@@ -589,80 +589,93 @@ export function useTabs(initial?: Partial<TerminalTab>) {
    * - `pin = false` — VSCode-style **preview** tab. A single shared slot is
    *   reused: if a persistent tab for the path already exists it is activated;
    *   otherwise the current preview slot is replaced with the new path.
+   *
+   * Lookups read `tabsRef` and focus is set with a plain `setActiveId` —
+   * never via a side effect inside a `setTabs` updater. React only runs the
+   * first updater of a batch eagerly; any later one is deferred, so a
+   * side-effect-based target id silently drops focus when several files open
+   * at once (the tab list still changes, but the wrong tab stays active).
    */
   const openFileTab = useCallback((path: string, pin = true) => {
-    let targetId: number | null = null;
-    setTabs((curr) => {
-      if (pin) {
-        // Persistent open: find any existing editor tab, pin it if needed.
-        const existing = curr.find(
-          (t) => t.kind === "editor" && t.path === path,
-        );
-        if (existing) {
-          targetId = existing.id;
-          if ((existing as EditorTab).preview) {
-            return curr.map((t) =>
-              t.id === existing.id ? { ...t, preview: false } : t,
-            );
-          }
-          return curr;
+    if (pin) {
+      // Persistent open: find any existing editor tab, pin it if needed.
+      const existing = tabsRef.current.find(
+        (t) => t.kind === "editor" && t.path === path,
+      );
+      if (existing) {
+        if ((existing as EditorTab).preview) {
+          const existingId = existing.id;
+          setTabs((curr) =>
+            curr.map((t) =>
+              t.id === existingId ? { ...t, preview: false } : t,
+            ),
+          );
         }
-        const id = nextIdRef.current++;
-        targetId = id;
-        return [
-          ...curr,
-          {
-            id,
-            kind: "editor",
-            spaceId: activeSpaceIdRef.current,
-            title: basename(path),
-            path,
-            dirty: false,
-            preview: false,
-          } satisfies EditorTab,
-        ];
-      } else {
-        // Preview open: persistent tab for this path takes priority.
-        const persistent = curr.find(
-          (t) =>
-            t.kind === "editor" && t.path === path && !(t as EditorTab).preview,
-        );
-        if (persistent) {
-          targetId = persistent.id;
-          return curr;
-        }
-        // Reuse the slot if it already shows the same path.
-        const existingPreview = curr.find(
-          (t) =>
-            t.kind === "editor" && t.path === path && (t as EditorTab).preview,
-        );
-        if (existingPreview) {
-          targetId = existingPreview.id;
-          return curr;
-        }
-        // Replace the current preview slot, or append a new one.
-        const previewIdx = curr.findIndex(
-          (t) => t.kind === "editor" && (t as EditorTab).preview,
-        );
-        const id = nextIdRef.current++;
-        targetId = id;
-        const tab: EditorTab = {
-          id,
-          kind: "editor",
-          spaceId: activeSpaceIdRef.current,
-          title: basename(path),
-          path,
-          dirty: false,
-          preview: true,
-        };
-        if (previewIdx === -1) return [...curr, tab];
-        const next = [...curr];
-        next[previewIdx] = tab;
-        return next;
+        setActiveId(existing.id);
+        return existing.id;
       }
-    });
-    if (targetId !== null) setActiveId(targetId);
-    return targetId as number | null;
+      const id = nextIdRef.current++;
+      setTabs((curr) =>
+        // Re-check queued state: an open of the same path earlier in this
+        // batch is not visible through tabsRef yet.
+        curr.some((t) => t.kind === "editor" && t.path === path)
+          ? curr
+          : [
+              ...curr,
+              {
+                id,
+                kind: "editor",
+                spaceId: activeSpaceIdRef.current,
+                title: basename(path),
+                path,
+                dirty: false,
+                preview: false,
+              } satisfies EditorTab,
+            ],
+      );
+      setActiveId(id);
+      return id;
+    }
+    // Preview open: persistent tab for this path takes priority.
+    const persistent = tabsRef.current.find(
+      (t) =>
+        t.kind === "editor" && t.path === path && !(t as EditorTab).preview,
+    );
+    if (persistent) {
+      setActiveId(persistent.id);
+      return persistent.id;
+    }
+    // Reuse the slot if it already shows the same path.
+    const existingPreview = tabsRef.current.find(
+      (t) =>
+        t.kind === "editor" && t.path === path && (t as EditorTab).preview,
+    );
+    if (existingPreview) {
+      setActiveId(existingPreview.id);
+      return existingPreview.id;
+    }
+    // Replace the current preview slot in place, or append a new one.
+    const previewSlot = tabsRef.current.find(
+      (t) => t.kind === "editor" && (t as EditorTab).preview,
+    );
+    const id = nextIdRef.current++;
+    const tab: EditorTab = {
+      id,
+      kind: "editor",
+      spaceId: activeSpaceIdRef.current,
+      title: basename(path),
+      path,
+      dirty: false,
+      preview: true,
+    };
+    if (previewSlot) {
+      const slotId = previewSlot.id;
+      setTabs((curr) => curr.map((t) => (t.id === slotId ? tab : t)));
+    } else {
+      setTabs((curr) => [...curr, tab]);
+    }
+    setActiveId(id);
+    return id;
   }, []);
 
   /**
@@ -773,30 +786,31 @@ export function useTabs(initial?: Partial<TerminalTab>) {
   }, []);
 
   const newMarkdownTab = useCallback((path: string) => {
-    let targetId: number | null = null;
-    setTabs((curr) => {
-      const existing = curr.find(
-        (t) => t.kind === "markdown" && t.path === path,
-      );
-      if (existing) {
-        targetId = existing.id;
-        return curr;
-      }
-      const id = nextIdRef.current++;
-      targetId = id;
-      return [
-        ...curr,
-        {
-          id,
-          kind: "markdown",
-          spaceId: activeSpaceIdRef.current,
-          title: basename(path),
-          path,
-        },
-      ];
-    });
-    if (targetId !== null) setActiveId(targetId);
-    return targetId;
+    const existing = tabsRef.current.find(
+      (t) => t.kind === "markdown" && t.path === path,
+    );
+    if (existing) {
+      setActiveId(existing.id);
+      return existing.id;
+    }
+    const id = nextIdRef.current++;
+    setTabs((curr) =>
+      // Re-check queued state for a same-path open earlier in this batch.
+      curr.some((t) => t.kind === "markdown" && t.path === path)
+        ? curr
+        : [
+            ...curr,
+            {
+              id,
+              kind: "markdown",
+              spaceId: activeSpaceIdRef.current,
+              title: basename(path),
+              path,
+            },
+          ],
+    );
+    setActiveId(id);
+    return id;
   }, []);
 
   const setOverrideLanguage = useCallback((id: number, lang: string | null) => {

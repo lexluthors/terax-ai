@@ -53,7 +53,12 @@ fn resolve_launch_target(entries: Vec<LaunchEntry>) -> LaunchTarget {
                 if dir.is_none() {
                     dir = path.parent().map(fs::to_canon);
                 }
-                files.push(fs::to_canon(&path));
+                let canon = fs::to_canon(&path);
+                // Same file passed twice (`terax f.txt f.txt`) must not open
+                // two tabs — the frontend focuses the last entry of the batch.
+                if !files.contains(&canon) {
+                    files.push(canon);
+                }
             }
         }
     }
@@ -198,9 +203,14 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::Builder::new().build())
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             // Single instance callback: a second instance was launched with `argv`.
+            // The plugin forwards std::env::args() verbatim, so argv[0] is the
+            // terax executable itself — skip it exactly like the cold-start path
+            // does, otherwise every warm open would also "open" the app binary
+            // as a file tab (a ~9 MB "Binary file" preview) and authorize
+            // Contents/MacOS as the workspace dir.
             // Parse the args for files and emit them to the frontend so it can
             // open new tabs instead of starting a new window.
-            let target = parse_launch_target_from_args(argv);
+            let target = parse_launch_target_from_args(argv.into_iter().skip(1).collect());
             if !target.files.is_empty() {
                 // Authorize the parent directories so the frontend can access them.
                 if let Some(dir) = &target.dir {
@@ -440,5 +450,14 @@ mod launch_target_tests {
         ]);
         assert_eq!(out.dir.as_deref(), Some("/workspace"));
         assert_eq!(out.files, vec!["/other/x.rs".to_string()]);
+    }
+
+    #[test]
+    fn duplicate_file_args_open_once() {
+        let out = resolve_launch_target(vec![
+            LaunchEntry::File(PathBuf::from("/a/one.txt")),
+            LaunchEntry::File(PathBuf::from("/a/one.txt")),
+        ]);
+        assert_eq!(out.files, vec!["/a/one.txt".to_string()]);
     }
 }
