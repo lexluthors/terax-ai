@@ -61,6 +61,20 @@ export async function copyFilesToClipboard(paths: string[]): Promise<void> {
   }
 }
 
+export async function pasteFilesFromClipboard(
+  targetDir: string,
+): Promise<string[]> {
+  try {
+    const result = await invoke<string[]>("paste_files_from_clipboard", {
+      targetDir,
+    });
+    return result;
+  } catch (e) {
+    console.error("pasteFilesFromClipboard failed:", e);
+    throw e;
+  }
+}
+
 /**
  * 检查文件是否为可执行类型
  */

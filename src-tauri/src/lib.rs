@@ -336,6 +336,7 @@ pub fn run() {
             shell::terminal::open_system_terminal,
             shell::terminal::execute_file,
             shell::terminal::copy_files_to_clipboard,
+            shell::terminal::paste_files_from_clipboard,
             workspace::wsl_list_distros,
             workspace::wsl_default_distro,
             workspace::wsl_home,

@@ -37,6 +37,7 @@ import {
   openSystemTerminal,
   executeFile,
   copyFilesToClipboard,
+  pasteFilesFromClipboard,
   isExecutableFile,
 } from "./lib/contextActions";
 import { fileIconUrl, folderIconUrl } from "./lib/iconResolver";
@@ -817,6 +818,25 @@ export const FileExplorer = memo(
                   >
                     {selectedPaths.size > 0 ? `Copy Relative Paths (${selectedPaths.size})` : "Copy Relative Path"}
                   </ContextMenuItem>
+                  <ContextMenuItem
+                    className={COMPACT_ITEM}
+                    onSelect={async () => {
+                      const targetDir = menuTarget.isDir
+                        ? menuTarget.path
+                        : parentOf(menuTarget.path, rootPath);
+                      try {
+                        await pasteFilesFromClipboard(targetDir);
+                        await tree.refresh(targetDir);
+                        if (targetDir !== rootPath && !tree.expanded.has(targetDir)) {
+                          tree.expand(targetDir);
+                        }
+                      } catch {
+                        // 剪贴板无文件或粘贴失败时静默处理
+                      }
+                    }}
+                  >
+                    Paste File
+                  </ContextMenuItem>
                   <ContextMenuSeparator />
                   <ContextMenuItem
                     className={COMPACT_ITEM}
@@ -891,6 +911,19 @@ export const FileExplorer = memo(
                     onSelect={() => void copyToClipboard(rootPath)}
                   >
                     Copy Path
+                  </ContextMenuItem>
+                  <ContextMenuItem
+                    className={COMPACT_ITEM}
+                    onSelect={async () => {
+                      try {
+                        await pasteFilesFromClipboard(rootPath);
+                        await tree.refresh(rootPath);
+                      } catch {
+                        // 剪贴板无文件或粘贴失败时静默处理
+                      }
+                    }}
+                  >
+                    Paste File
                   </ContextMenuItem>
                   <ContextMenuItem
                     className={COMPACT_ITEM}
