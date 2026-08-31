@@ -3,8 +3,8 @@ use tauri::{AppHandle, Manager};
 use crate::modules::git::operations;
 use crate::modules::git::types::{
     DiscardEntry, GitBranchListResult, GitCommitFileChange, GitCommitResult,
-    GitDiffContentResult, GitDiffResult, GitLogEntry, GitPanelSnapshot, GitPushResult,
-    GitRepoInfo, GitStatusSnapshot,
+    GitDiffContentResult, GitDiffResult, GitLogEntry, GitOperationOutputResult, GitPanelSnapshot,
+    GitPushResult, GitRepoInfo, GitStatusSnapshot,
 };
 use crate::modules::workspace::{WorkspaceEnv, WorkspaceRegistry};
 
@@ -306,6 +306,66 @@ pub async fn git_checkout_branch(
     let workspace = WorkspaceEnv::from_option(workspace);
     blocking(app, move |r| {
         operations::checkout_branch(r, &repo_root, &branch, &workspace).map_err(Into::into)
+    })
+    .await
+}
+
+/// Git pull with output (用于弹窗显示进度和输出)
+#[tauri::command]
+pub async fn git_pull_with_output(
+    repo_root: String,
+    workspace: Option<WorkspaceEnv>,
+    app: AppHandle,
+) -> Result<GitOperationOutputResult, String> {
+    let workspace = WorkspaceEnv::from_option(workspace);
+    blocking(app, move |r| {
+        operations::pull_with_output(r, &repo_root, &workspace).map_err(Into::into)
+    })
+    .await
+}
+
+/// Git push with output (用于弹窗显示进度和输出)
+#[tauri::command]
+pub async fn git_push_with_output(
+    repo_root: String,
+    workspace: Option<WorkspaceEnv>,
+    app: AppHandle,
+) -> Result<GitOperationOutputResult, String> {
+    let workspace = WorkspaceEnv::from_option(workspace);
+    blocking(app, move |r| {
+        operations::push_with_output(r, &repo_root, &workspace).map_err(Into::into)
+    })
+    .await
+}
+
+/// Git commit with files and output (用于弹窗显示)
+#[tauri::command]
+pub async fn git_commit_with_output(
+    repo_root: String,
+    message: String,
+    files: Vec<String>,
+    workspace: Option<WorkspaceEnv>,
+    app: AppHandle,
+) -> Result<GitOperationOutputResult, String> {
+    let workspace = WorkspaceEnv::from_option(workspace);
+    blocking(app, move |r| {
+        operations::commit_with_output(r, &repo_root, &message, &files, &workspace)
+            .map_err(Into::into)
+    })
+    .await
+}
+
+/// 删除未跟踪的文件
+#[tauri::command]
+pub async fn git_delete_untracked(
+    repo_root: String,
+    files: Vec<String>,
+    workspace: Option<WorkspaceEnv>,
+    app: AppHandle,
+) -> Result<(), String> {
+    let workspace = WorkspaceEnv::from_option(workspace);
+    blocking(app, move |r| {
+        operations::delete_untracked_files(r, &repo_root, &files, &workspace).map_err(Into::into)
     })
     .await
 }

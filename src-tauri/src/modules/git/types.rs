@@ -115,6 +115,14 @@ pub struct GitPushResult {
     pub pushed: bool,
 }
 
+/// Git 操作结果（带完整输出，用于在弹窗中显示）
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct GitOperationOutputResult {
+    pub success: bool,
+    pub output: String,
+}
+
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct GitBranchEntry {

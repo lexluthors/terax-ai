@@ -9,9 +9,9 @@ use crate::modules::git::process::{
 };
 use crate::modules::git::types::{
     DiscardEntry, GitBranchEntry, GitBranchListResult, GitCommitFileChange, GitCommitResult,
-    GitDiffContentResult, GitDiffResult, GitLogEntry, GitOutput, GitPanelSnapshot,
-    GitPushResult, GitRepoInfo, GitStatusSnapshot, TextSource, DEFAULT_TIMEOUT_SECS,
-    NETWORK_TIMEOUT_SECS,
+    GitDiffContentResult, GitDiffResult, GitLogEntry, GitOperationOutputResult, GitOutput,
+    GitPanelSnapshot, GitPushResult, GitRepoInfo, GitStatusSnapshot, TextSource,
+    DEFAULT_TIMEOUT_SECS, NETWORK_TIMEOUT_SECS,
 };
 use crate::modules::git::utils::{
     authorized_repo_root, canonical_dir, resolve_within_repo, split_upstream,
@@ -1145,6 +1145,158 @@ pub fn checkout_branch(
         DEFAULT_TIMEOUT_SECS,
     )?;
     ensure_success(&output, "git checkout failed")
+}
+
+/// Git pull with full output (用于弹窗显示)
+pub fn pull_with_output(
+    registry: &WorkspaceRegistry,
+    repo_root: &str,
+    workspace: &WorkspaceEnv,
+) -> Result<GitOperationOutputResult> {
+    let repo_root = authorized_repo_root(registry, repo_root, workspace)?;
+    ensure_git_available(&repo_root.workspace)?;
+    let output = run_git(
+        &repo_root.workspace,
+        Some(&repo_root.git_path),
+        ["pull"],
+        NETWORK_TIMEOUT_SECS,
+    )?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let combined = if stdout.is_empty() {
+        stderr
+    } else if stderr.is_empty() {
+        stdout
+    } else {
+        format!("{}\n{}", stdout, stderr)
+    };
+
+    Ok(GitOperationOutputResult {
+        success: output.exit_code == Some(0),
+        output: combined,
+    })
+}
+
+/// Git push with full output (用于弹窗显示)
+pub fn push_with_output(
+    registry: &WorkspaceRegistry,
+    repo_root: &str,
+    workspace: &WorkspaceEnv,
+) -> Result<GitOperationOutputResult> {
+    let repo_root = authorized_repo_root(registry, repo_root, workspace)?;
+    ensure_git_available(&repo_root.workspace)?;
+
+    let output = run_git(
+        &repo_root.workspace,
+        Some(&repo_root.git_path),
+        ["push"],
+        NETWORK_TIMEOUT_SECS,
+    )?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let combined = if stdout.is_empty() {
+        stderr
+    } else if stderr.is_empty() {
+        stdout
+    } else {
+        format!("{}\n{}", stdout, stderr)
+    };
+
+    Ok(GitOperationOutputResult {
+        success: output.exit_code == Some(0),
+        output: combined,
+    })
+}
+
+/// Git commit with files and full output (用于弹窗显示)
+pub fn commit_with_output(
+    registry: &WorkspaceRegistry,
+    repo_root: &str,
+    message: &str,
+    files: &[String],
+    workspace: &WorkspaceEnv,
+) -> Result<GitOperationOutputResult> {
+    let repo_root = authorized_repo_root(registry, repo_root, workspace)?;
+    ensure_git_available(&repo_root.workspace)?;
+
+    // 先 git add 选中的文件
+    if !files.is_empty() {
+        let resolved = resolve_pathspecs(&repo_root.local_path, files)?;
+        let mut args: Vec<OsString> = vec!["add".into(), "--".into()];
+        for p in &resolved {
+            args.push(p.clone().into());
+        }
+        let add_output = run_git(
+            &repo_root.workspace,
+            Some(&repo_root.git_path),
+            args,
+            DEFAULT_TIMEOUT_SECS,
+        )?;
+        if add_output.exit_code != Some(0) {
+            let stderr = String::from_utf8_lossy(&add_output.stderr);
+            return Ok(GitOperationOutputResult {
+                success: false,
+                output: format!("git add failed: {}", stderr),
+            });
+        }
+    }
+
+    // 执行 commit
+    let output = run_git(
+        &repo_root.workspace,
+        Some(&repo_root.git_path),
+        ["commit", "-m", message],
+        DEFAULT_TIMEOUT_SECS,
+    )?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let combined = if stdout.is_empty() {
+        stderr
+    } else if stderr.is_empty() {
+        stdout
+    } else {
+        format!("{}\n{}", stdout, stderr)
+    };
+
+    Ok(GitOperationOutputResult {
+        success: output.exit_code == Some(0),
+        output: combined,
+    })
+}
+
+/// 删除未跟踪的文件
+pub fn delete_untracked_files(
+    registry: &WorkspaceRegistry,
+    repo_root: &str,
+    files: &[String],
+    workspace: &WorkspaceEnv,
+) -> Result<()> {
+    let repo_root = authorized_repo_root(registry, repo_root, workspace)?;
+    let base = &repo_root.local_path;
+
+    for file in files {
+        let file_path = base.join(file);
+        if file_path.exists() {
+            if file_path.is_dir() {
+                std::fs::remove_dir_all(&file_path)
+                    .map_err(|e| GitError::CommandFailed {
+                        context: "delete directory",
+                        detail: e.to_string(),
+                    })?;
+            } else {
+                std::fs::remove_file(&file_path)
+                    .map_err(|e| GitError::CommandFailed {
+                        context: "delete file",
+                        detail: e.to_string(),
+                    })?;
+            }
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

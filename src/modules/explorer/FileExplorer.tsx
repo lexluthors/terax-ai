@@ -4,6 +4,9 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import {
@@ -12,6 +15,9 @@ import {
   FolderAddIcon,
   Refresh01Icon,
   Search01Icon,
+  ArrowDown01Icon,
+  ArrowUp01Icon,
+  DocumentCodeIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -47,10 +53,13 @@ import { useExplorerFileDrop } from "./lib/useExplorerFileDrop";
 import { useFileTree } from "./lib/useFileTree";
 import { useGitStatus } from "./lib/useGitStatus";
 import type { GitStatusCode } from "./lib/gitStatusUtils";
+import { isGitRepo, gitCurrentBranch } from "./lib/gitOperations";
 import { useGlobalShortcuts } from "@/modules/shortcuts";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import type { GitStatusSnapshot } from "@/modules/ai/lib/native";
 import type { TerminalPathDropTarget } from "@/modules/terminal";
+import { PullPushDialog } from "./PullPushDialog";
+import { CommitDialog } from "./CommitDialog";
 
 export type FileExplorerHandle = {
   focus: () => void;
@@ -256,6 +265,27 @@ export const FileExplorer = memo(
     // re-anchors to the new cursor (floating-ui won't reposition on an anchor
     // change alone, only on scroll/resize).
     const [menuNonce, setMenuNonce] = useState(0);
+
+    // Git 对话框状态
+    const [gitRepoPath, setGitRepoPath] = useState<string | null>(null);
+    const [gitBranch, setGitBranch] = useState<string>("HEAD");
+    const [showPullDialog, setShowPullDialog] = useState(false);
+    const [showPushDialog, setShowPushDialog] = useState(false);
+    const [showCommitDialog, setShowCommitDialog] = useState(false);
+
+    // 检查是否为 git 仓库
+    const checkGitRepo = useCallback(async (path: string, isDir: boolean) => {
+      const targetPath = isDir ? path : path.substring(0, path.lastIndexOf("/"));
+      if (!targetPath) return;
+      const isRepo = await isGitRepo(targetPath);
+      if (isRepo) {
+        setGitRepoPath(targetPath);
+        const branch = await gitCurrentBranch(targetPath);
+        setGitBranch(branch);
+      } else {
+        setGitRepoPath(null);
+      }
+    }, []);
 
     const entryPaths = useMemo<string[]>(() => {
       const out: string[] = [];
@@ -639,13 +669,18 @@ export const FileExplorer = memo(
                   const idx =
                     path != null ? entryIndexByPath.get(path) : undefined;
                   const row = idx !== undefined ? rows[idx] : undefined;
-                  setMenuTarget(
-                    row && row.kind === "entry"
-                      ? { path: row.path, name: row.name, isDir: row.isDir }
-                      : null,
-                  );
+                  const target = row && row.kind === "entry"
+                    ? { path: row.path, name: row.name, isDir: row.isDir }
+                    : null;
+                  setMenuTarget(target);
                   setDeleteConfirm(false);
                   setMenuNonce((n) => n + 1);
+                  // 检查是否为 git 仓库
+                  if (target) {
+                    void checkGitRepo(target.path, target.isDir);
+                  } else {
+                    void checkGitRepo(rootPath, true);
+                  }
                 }}
               >
                 {pendingAtRoot ? (
@@ -844,6 +879,44 @@ export const FileExplorer = memo(
                   >
                     Attach to Agent
                   </ContextMenuItem>
+                  {gitRepoPath && (
+                    <>
+                      <ContextMenuSeparator />
+                      <ContextMenuSub>
+                        <ContextMenuSubTrigger className={COMPACT_ITEM}>
+                          <span className="flex items-center gap-1.5">
+                            Git
+                            <span className="rounded bg-primary/10 px-1 py-px font-mono text-[10px] text-primary">
+                              {gitBranch}
+                            </span>
+                          </span>
+                        </ContextMenuSubTrigger>
+                        <ContextMenuSubContent className={COMPACT_CONTENT}>
+                          <ContextMenuItem
+                            className={COMPACT_ITEM}
+                            onSelect={() => setShowPullDialog(true)}
+                          >
+                            <HugeiconsIcon icon={ArrowDown01Icon} size={14} />
+                            <span className="ml-1.5">Pull</span>
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            className={COMPACT_ITEM}
+                            onSelect={() => setShowCommitDialog(true)}
+                          >
+                            <HugeiconsIcon icon={DocumentCodeIcon} size={14} />
+                            <span className="ml-1.5">Commit...</span>
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            className={COMPACT_ITEM}
+                            onSelect={() => setShowPushDialog(true)}
+                          >
+                            <HugeiconsIcon icon={ArrowUp01Icon} size={14} />
+                            <span className="ml-1.5">Push</span>
+                          </ContextMenuItem>
+                        </ContextMenuSubContent>
+                      </ContextMenuSub>
+                    </>
+                  )}
                   <ContextMenuSeparator />
                   <ContextMenuItem
                     className={COMPACT_ITEM}
@@ -945,6 +1018,40 @@ export const FileExplorer = memo(
             {dnd.dragLabel}
           </div>
         ) : null}
+
+        {/* Git Pull 弹窗 */}
+        {gitRepoPath && (
+          <PullPushDialog
+            open={showPullDialog}
+            onOpenChange={setShowPullDialog}
+            operation="pull"
+            repoRoot={gitRepoPath}
+            branch={gitBranch}
+            onCompleted={() => tree.refresh(gitRepoPath)}
+          />
+        )}
+
+        {/* Git Push 弹窗 */}
+        {gitRepoPath && (
+          <PullPushDialog
+            open={showPushDialog}
+            onOpenChange={setShowPushDialog}
+            operation="push"
+            repoRoot={gitRepoPath}
+            branch={gitBranch}
+            onCompleted={() => tree.refresh(gitRepoPath)}
+          />
+        )}
+
+        {/* Git Commit 弹窗 */}
+        {gitRepoPath && (
+          <CommitDialog
+            open={showCommitDialog}
+            onOpenChange={setShowCommitDialog}
+            repoRoot={gitRepoPath}
+            onCompleted={() => tree.refresh(gitRepoPath)}
+          />
+        )}
       </div>
     );
   }),
