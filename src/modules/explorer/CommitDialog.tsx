@@ -45,6 +45,7 @@ export const CommitDialog = memo(function CommitDialog({
   const [commitMessage, setCommitMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [showPushDialog, setShowPushDialog] = useState(false);
+  const [rollbackConfirm, setRollbackConfirm] = useState(false);
 
   // 加载 git status
   const loadStatus = useCallback(async () => {
@@ -58,6 +59,7 @@ export const CommitDialog = memo(function CommitDialog({
 
   useEffect(() => {
     if (open) {
+      setRollbackConfirm(false);
       void loadStatus();
     }
   }, [open, loadStatus]);
@@ -71,6 +73,8 @@ export const CommitDialog = memo(function CommitDialog({
 
   // 选择/取消选择文件
   const toggleFile = useCallback((path: string) => {
+    // 选择变化时解除待确认态，防止对不同的文件集合误执行
+    setRollbackConfirm(false);
     setSelectedFiles((prev) => {
       const next = new Set(prev);
       if (next.has(path)) {
@@ -85,14 +89,15 @@ export const CommitDialog = memo(function CommitDialog({
   // 全选/取消全选分区
   const toggleGroup = useCallback(
     (groupFiles: FileStatus[]) => {
+      setRollbackConfirm(false);
       const paths = groupFiles.map((f) => f.path);
       const allSelected = paths.every((p) => selectedFiles.has(p));
       setSelectedFiles((prev) => {
         const next = new Set(prev);
         if (allSelected) {
-          paths.forEach((p) => next.delete(p));
+          for (const p of paths) next.delete(p);
         } else {
-          paths.forEach((p) => next.add(p));
+          for (const p of paths) next.add(p);
         }
         return next;
       });
@@ -257,13 +262,26 @@ export const CommitDialog = memo(function CommitDialog({
             {/* 操作按钮 */}
             <div className="flex items-center justify-between">
               <Button
-                variant="outline"
+                variant={rollbackConfirm ? "destructive" : "outline"}
                 size="sm"
                 disabled={!hasSelection}
-                onClick={() => void handleRollback()}
+                onClick={() => {
+                  if (rollbackConfirm) {
+                    setRollbackConfirm(false);
+                    void handleRollback();
+                  } else {
+                    setRollbackConfirm(true);
+                  }
+                }}
               >
-                <HugeiconsIcon icon={Delete01Icon} size={14} />
-                <span className="ml-1">Rollback</span>
+                {rollbackConfirm ? (
+                  <span>Click again to confirm</span>
+                ) : (
+                  <>
+                    <HugeiconsIcon icon={Delete01Icon} size={14} />
+                    <span className="ml-1">Rollback</span>
+                  </>
+                )}
               </Button>
               <div className="flex gap-2">
                 <Button

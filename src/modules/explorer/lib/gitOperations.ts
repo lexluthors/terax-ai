@@ -160,7 +160,7 @@ export async function gitDiscard(
 ): Promise<void> {
   await invoke("git_discard", {
     repoRoot,
-    entries: files.map((path) => ({ path, staged: false })),
+    entries: files.map((path) => ({ path, untracked: false })),
     workspace,
   });
 }
