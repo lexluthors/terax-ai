@@ -27,7 +27,11 @@ export interface WorkspaceEnv {
  */
 export async function isGitRepo(path: string): Promise<boolean> {
   try {
-    return await invoke<boolean>("plugin:git|is_git_repo", { path });
+    const result = await invoke<{ repo_root: string } | null>(
+      "git_resolve_repo",
+      { cwd: path, workspace: undefined }
+    );
+    return result !== null && result.repo_root !== "";
   } catch {
     return false;
   }
@@ -42,7 +46,7 @@ export async function gitCurrentBranch(
 ): Promise<string> {
   try {
     const result = await invoke<{ branch: string }>(
-      "plugin:git|git_resolve_repo",
+      "git_resolve_repo",
       { cwd: repoRoot, workspace },
     );
     return result?.branch ?? "HEAD";
@@ -60,22 +64,31 @@ export async function gitStatus(
 ): Promise<GitStatusResult> {
   try {
     const result = await invoke<{
-      branch: string;
-      entries: Array<{
-        path: string;
-        statusCode: string;
-        staged: boolean;
-      }>;
-    }>("plugin:git|git_panel_snapshot", { cwd: repoRoot, workspace });
+      repo: { branch: string } | null;
+      status: {
+        branch: string;
+        changedFiles: Array<{
+          path: string;
+          indexStatus: string;
+          worktreeStatus: string;
+          untracked: boolean;
+        }>;
+      } | null;
+    }>("git_panel_snapshot", { cwd: repoRoot, workspace });
 
-    const files: FileStatus[] = result.entries.map((e) => ({
-      path: e.path,
-      status: e.statusCode,
-      isTracked: !e.statusCode.includes("?"),
+    const status = result.status;
+    if (!status) {
+      return { branch: result.repo?.branch ?? "HEAD", files: [] };
+    }
+
+    const files: FileStatus[] = status.changedFiles.map((f) => ({
+      path: f.path,
+      status: `${f.indexStatus}${f.worktreeStatus}`.replace(/ /g, "") || "?",
+      isTracked: !f.untracked,
     }));
 
     return {
-      branch: result.branch,
+      branch: status.branch,
       files,
     };
   } catch (e) {
@@ -93,7 +106,7 @@ export async function gitPullWithOutput(
 ): Promise<GitOperationOutputResult> {
   try {
     return await invoke<GitOperationOutputResult>(
-      "plugin:git|git_pull_with_output",
+      "git_pull_with_output",
       { repoRoot, workspace },
     );
   } catch (e) {
@@ -110,7 +123,7 @@ export async function gitPushWithOutput(
 ): Promise<GitOperationOutputResult> {
   try {
     return await invoke<GitOperationOutputResult>(
-      "plugin:git|git_push_with_output",
+      "git_push_with_output",
       { repoRoot, workspace },
     );
   } catch (e) {
@@ -129,7 +142,7 @@ export async function gitCommitWithOutput(
 ): Promise<GitOperationOutputResult> {
   try {
     return await invoke<GitOperationOutputResult>(
-      "plugin:git|git_commit_with_output",
+      "git_commit_with_output",
       { repoRoot, message, files, workspace },
     );
   } catch (e) {
@@ -145,7 +158,7 @@ export async function gitDiscard(
   files: string[],
   workspace?: WorkspaceEnv,
 ): Promise<void> {
-  await invoke("plugin:git|git_discard", {
+  await invoke("git_discard", {
     repoRoot,
     entries: files.map((path) => ({ path, staged: false })),
     workspace,
@@ -160,7 +173,7 @@ export async function gitDeleteUntracked(
   files: string[],
   workspace?: WorkspaceEnv,
 ): Promise<void> {
-  await invoke("plugin:git|git_delete_untracked", {
+  await invoke("git_delete_untracked", {
     repoRoot,
     files,
     workspace,

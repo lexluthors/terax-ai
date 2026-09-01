@@ -273,6 +273,13 @@ export const FileExplorer = memo(
     const [showPushDialog, setShowPushDialog] = useState(false);
     const [showCommitDialog, setShowCommitDialog] = useState(false);
 
+    // Git 检查完成后重新渲染菜单
+    useEffect(() => {
+      if (menuTarget) {
+        setMenuNonce((n) => n + 1);
+      }
+    }, [gitRepoPath, gitBranch, menuTarget]);
+
     // 检查是否为 git 仓库
     const checkGitRepo = useCallback(async (path: string, isDir: boolean) => {
       const targetPath = isDir ? path : path.substring(0, path.lastIndexOf("/"));
@@ -675,7 +682,7 @@ export const FileExplorer = memo(
                   setMenuTarget(target);
                   setDeleteConfirm(false);
                   setMenuNonce((n) => n + 1);
-                  // 检查是否为 git 仓库
+                  // 检查是否为 git 仓库（异步，不阻塞菜单显示）
                   if (target) {
                     void checkGitRepo(target.path, target.isDir);
                   } else {
