@@ -4,7 +4,6 @@ import {
   ContextMenuItem,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { getLaunchDir } from "@/lib/launchDir";
 import { endpointIdFromCompatModel } from "@/modules/ai/config";
 import { getCustomEndpointKey, getKey } from "@/modules/ai/lib/keyring";
 import { lspFormatDocument, useLspExtension } from "@/modules/lsp";
@@ -292,7 +291,6 @@ export const EditorPane = memo(
       const fileExt = dot > 0 ? base.slice(dot + 1).toLowerCase() : null;
       const out = buildCopyContext({
         path: pathRef.current,
-        workspaceRoot: getLaunchDir(),
         language: languageRef.current ?? fileExt,
         text,
         startLine,
