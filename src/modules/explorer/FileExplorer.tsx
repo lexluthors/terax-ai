@@ -9,15 +9,20 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { cn } from "@/lib/utils";
+import type { GitStatusSnapshot } from "@/modules/ai/lib/native";
+import { usePreferencesStore } from "@/modules/settings/preferences";
+import { useGlobalShortcuts } from "@/modules/shortcuts";
+import type { TerminalPathDropTarget } from "@/modules/terminal";
 import {
+  ArrowDown01Icon,
+  ArrowUp01Icon,
+  DocumentCodeIcon,
   FileAddIcon,
   Folder01Icon,
   FolderAddIcon,
   Refresh01Icon,
   Search01Icon,
-  ArrowDown01Icon,
-  ArrowUp01Icon,
-  DocumentCodeIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -31,35 +36,31 @@ import {
   useRef,
   useState,
 } from "react";
-import { cn } from "@/lib/utils";
+import { CommitDialog } from "./CommitDialog";
 import { ExplorerSearch, type ExplorerSearchHandle } from "./ExplorerSearch";
-import { EntryRow, PendingRow, StatusRow, type RowActions } from "./TreeRow";
+import { FolderSearchDialog } from "./FolderSearchDialog";
 import { InlineInput } from "./InlineInput";
 import {
-  copyToClipboard,
-  relativePath,
-  pruneDescendantPaths,
-  revealInFinder,
-  openSystemTerminal,
-  executeFile,
   copyFilesToClipboard,
-  pasteFilesFromClipboard,
+  copyToClipboard,
+  executeFile,
   isExecutableFile,
+  openSystemTerminal,
+  pasteFilesFromClipboard,
+  pruneDescendantPaths,
+  relativePath,
+  revealInFinder,
 } from "./lib/contextActions";
+import { gitCurrentBranch, isGitRepo } from "./lib/gitOperations";
+import type { GitStatusCode } from "./lib/gitStatusUtils";
 import { fileIconUrl, folderIconUrl } from "./lib/iconResolver";
 import { COMPACT_CONTENT, COMPACT_ITEM } from "./lib/menuItemClass";
 import { useExplorerDnd } from "./lib/useExplorerDnd";
 import { useExplorerFileDrop } from "./lib/useExplorerFileDrop";
 import { useFileTree } from "./lib/useFileTree";
 import { useGitStatus } from "./lib/useGitStatus";
-import type { GitStatusCode } from "./lib/gitStatusUtils";
-import { isGitRepo, gitCurrentBranch } from "./lib/gitOperations";
-import { useGlobalShortcuts } from "@/modules/shortcuts";
-import { usePreferencesStore } from "@/modules/settings/preferences";
-import type { GitStatusSnapshot } from "@/modules/ai/lib/native";
-import type { TerminalPathDropTarget } from "@/modules/terminal";
 import { PullPushDialog } from "./PullPushDialog";
-import { CommitDialog } from "./CommitDialog";
+import { EntryRow, PendingRow, type RowActions, StatusRow } from "./TreeRow";
 
 export type FileExplorerHandle = {
   focus: () => void;
@@ -71,6 +72,7 @@ type Props = {
   rootPath: string | null;
   activeFilePath?: string | null;
   onOpenFile: (path: string, pin?: boolean) => void;
+  onOpenContentHit?: (path: string, line: number) => void;
   onPathRenamed?: (from: string, to: string) => void;
   onPathDeleted?: (path: string) => void;
   onRevealInTerminal?: (path: string) => void;
@@ -102,7 +104,13 @@ type Row =
       gitStatusCode: GitStatusCode | null;
     }
   | { kind: "pending"; key: string; depth: number; pendingKind: "file" | "dir" }
-  | { kind: "status"; key: string; depth: number; tone: "muted" | "error"; message: string };
+  | {
+      kind: "status";
+      key: string;
+      depth: number;
+      tone: "muted" | "error";
+      message: string;
+    };
 
 const ROW_HEIGHT = 24;
 const OVERSCAN = 8;
@@ -203,6 +211,7 @@ export const FileExplorer = memo(
       rootPath,
       activeFilePath,
       onOpenFile,
+      onOpenContentHit,
       onPathRenamed,
       onPathDeleted,
       onRevealInTerminal,
@@ -229,7 +238,11 @@ export const FileExplorer = memo(
     const scrollRef = useRef<HTMLDivElement>(null);
 
     const { rows, entryIndexByPath } = useMemo(() => {
-      if (!rootPath) return { rows: [] as Row[], entryIndexByPath: new Map<string, number>() };
+      if (!rootPath)
+        return {
+          rows: [] as Row[],
+          entryIndexByPath: new Map<string, number>(),
+        };
       return buildRows(rootPath, tree, lookupGitStatus);
       // `tree` is intentionally omitted: its identity changes every render, but
       // the listed fields are the only inputs buildRows actually reads.
@@ -273,6 +286,9 @@ export const FileExplorer = memo(
     const [showPushDialog, setShowPushDialog] = useState(false);
     const [showCommitDialog, setShowCommitDialog] = useState(false);
 
+    // 文件夹内容搜索弹窗状态
+    const [searchFolder, setSearchFolder] = useState<string | null>(null);
+
     // Git 检查完成后重新渲染菜单
     useEffect(() => {
       if (menuTarget) {
@@ -282,7 +298,9 @@ export const FileExplorer = memo(
 
     // 检查是否为 git 仓库
     const checkGitRepo = useCallback(async (path: string, isDir: boolean) => {
-      const targetPath = isDir ? path : path.substring(0, path.lastIndexOf("/"));
+      const targetPath = isDir
+        ? path
+        : path.substring(0, path.lastIndexOf("/"));
       if (!targetPath) return;
       const isRepo = await isGitRepo(targetPath);
       if (isRepo) {
@@ -310,7 +328,10 @@ export const FileExplorer = memo(
           const startIdx = entryPaths.indexOf(lastClickedPath);
           const endIdx = entryPaths.indexOf(path);
           if (startIdx >= 0 && endIdx >= 0) {
-            const [min, max] = [Math.min(startIdx, endIdx), Math.max(startIdx, endIdx)];
+            const [min, max] = [
+              Math.min(startIdx, endIdx),
+              Math.max(startIdx, endIdx),
+            ];
             const rangePaths = entryPaths.slice(min, max + 1);
             setSelectedPaths(new Set(rangePaths));
             setSelectedPath(path);
@@ -321,7 +342,9 @@ export const FileExplorer = memo(
           if (newSelected.has(path)) {
             newSelected.delete(path);
             if (selectedPath === path) {
-              setSelectedPath(newSelected.size > 0 ? Array.from(newSelected)[0] : null);
+              setSelectedPath(
+                newSelected.size > 0 ? Array.from(newSelected)[0] : null,
+              );
             }
           } else {
             newSelected.add(path);
@@ -360,7 +383,8 @@ export const FileExplorer = memo(
     });
 
     const dropTargetDir = dnd.dropTargetDir ?? fileDrop.externalTargetDir;
-    const rootIsDropTarget = dropTargetDir != null && dropTargetDir === rootPath;
+    const rootIsDropTarget =
+      dropTargetDir != null && dropTargetDir === rootPath;
     useEffect(() => {
       if (!dropTargetDir || dropTargetDir === rootPath) return;
       if (tree.expanded.has(dropTargetDir)) return;
@@ -394,7 +418,10 @@ export const FileExplorer = memo(
 
     const lastSyncedActivePathRef = useRef<string | null>(null);
     useEffect(() => {
-      if (!activeFilePath || activeFilePath === lastSyncedActivePathRef.current) {
+      if (
+        !activeFilePath ||
+        activeFilePath === lastSyncedActivePathRef.current
+      ) {
         return;
       }
       if (!entryIndexByPath.has(activeFilePath)) return;
@@ -573,7 +600,11 @@ export const FileExplorer = memo(
           );
         case "status":
           return (
-            <StatusRow depth={row.depth} message={row.message} tone={row.tone} />
+            <StatusRow
+              depth={row.depth}
+              message={row.message}
+              tone={row.tone}
+            />
           );
       }
     };
@@ -676,9 +707,10 @@ export const FileExplorer = memo(
                   const idx =
                     path != null ? entryIndexByPath.get(path) : undefined;
                   const row = idx !== undefined ? rows[idx] : undefined;
-                  const target = row && row.kind === "entry"
-                    ? { path: row.path, name: row.name, isDir: row.isDir }
-                    : null;
+                  const target =
+                    row && row.kind === "entry"
+                      ? { path: row.path, name: row.name, isDir: row.isDir }
+                      : null;
                   setMenuTarget(target);
                   setDeleteConfirm(false);
                   setMenuNonce((n) => n + 1);
@@ -804,6 +836,15 @@ export const FileExplorer = memo(
                   >
                     Reveal in Finder
                   </ContextMenuItem>
+                  {menuTarget.isDir && (
+                    <ContextMenuItem
+                      className={COMPACT_ITEM}
+                      onSelect={() => setSearchFolder(menuTarget.path)}
+                    >
+                      <HugeiconsIcon icon={Search01Icon} size={14} />
+                      <span className="ml-1.5">Search in Folder</span>
+                    </ContextMenuItem>
+                  )}
                   <ContextMenuSeparator />
                   <ContextMenuItem
                     className={COMPACT_ITEM}
@@ -835,30 +876,47 @@ export const FileExplorer = memo(
                   <ContextMenuItem
                     className={COMPACT_ITEM}
                     onSelect={() => {
-                      const paths = selectedPaths.size > 0 ? Array.from(selectedPaths) : [menuTarget.path];
+                      const paths =
+                        selectedPaths.size > 0
+                          ? Array.from(selectedPaths)
+                          : [menuTarget.path];
                       void copyFilesToClipboard(paths);
                     }}
                   >
-                    {selectedPaths.size > 0 ? `Copy Files (${selectedPaths.size})` : "Copy File"}
+                    {selectedPaths.size > 0
+                      ? `Copy Files (${selectedPaths.size})`
+                      : "Copy File"}
                   </ContextMenuItem>
                   <ContextMenuItem
                     className={COMPACT_ITEM}
                     onSelect={() => {
-                      const paths = selectedPaths.size > 0 ? Array.from(selectedPaths) : [menuTarget.path];
+                      const paths =
+                        selectedPaths.size > 0
+                          ? Array.from(selectedPaths)
+                          : [menuTarget.path];
                       void copyToClipboard(paths.join("\n"));
                     }}
                   >
-                    {selectedPaths.size > 0 ? `Copy Paths (${selectedPaths.size})` : "Copy Path"}
+                    {selectedPaths.size > 0
+                      ? `Copy Paths (${selectedPaths.size})`
+                      : "Copy Path"}
                   </ContextMenuItem>
                   <ContextMenuItem
                     className={COMPACT_ITEM}
                     onSelect={() => {
-                      const paths = selectedPaths.size > 0 ? Array.from(selectedPaths) : [menuTarget.path];
-                      const relativePaths = paths.map((p) => relativePath(rootPath, p));
+                      const paths =
+                        selectedPaths.size > 0
+                          ? Array.from(selectedPaths)
+                          : [menuTarget.path];
+                      const relativePaths = paths.map((p) =>
+                        relativePath(rootPath, p),
+                      );
                       void copyToClipboard(relativePaths.join("\n"));
                     }}
                   >
-                    {selectedPaths.size > 0 ? `Copy Relative Paths (${selectedPaths.size})` : "Copy Relative Path"}
+                    {selectedPaths.size > 0
+                      ? `Copy Relative Paths (${selectedPaths.size})`
+                      : "Copy Relative Path"}
                   </ContextMenuItem>
                   <ContextMenuItem
                     className={COMPACT_ITEM}
@@ -869,7 +927,10 @@ export const FileExplorer = memo(
                       try {
                         await pasteFilesFromClipboard(targetDir);
                         await tree.refresh(targetDir);
-                        if (targetDir !== rootPath && !tree.expanded.has(targetDir)) {
+                        if (
+                          targetDir !== rootPath &&
+                          !tree.expanded.has(targetDir)
+                        ) {
                           tree.expand(targetDir);
                         }
                       } catch {
@@ -1059,6 +1120,27 @@ export const FileExplorer = memo(
             onCompleted={() => tree.refresh(gitRepoPath)}
           />
         )}
+
+        {/* 文件夹内容搜索弹窗 */}
+        <FolderSearchDialog
+          open={searchFolder !== null}
+          folder={searchFolder ?? ""}
+          displayPath={
+            searchFolder
+              ? searchFolder === rootPath
+                ? basename(searchFolder) || searchFolder
+                : relativePath(rootPath ?? "", searchFolder)
+              : ""
+          }
+          onOpenChange={(nextOpen) => {
+            if (!nextOpen) setSearchFolder(null);
+          }}
+          onOpenHit={(path, line) => {
+            setSearchFolder(null);
+            if (onOpenContentHit) onOpenContentHit(path, line);
+            else onOpenFile(path);
+          }}
+        />
       </div>
     );
   }),

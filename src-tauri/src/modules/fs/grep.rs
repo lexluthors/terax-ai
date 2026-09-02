@@ -175,6 +175,7 @@ pub fn fs_grep(
     root: String,
     glob: Option<Vec<String>>,
     case_insensitive: Option<bool>,
+    literal: Option<bool>,
     max_results: Option<usize>,
     workspace: Option<WorkspaceEnv>,
 ) -> Result<GrepResponse, String> {
@@ -190,10 +191,17 @@ pub fn fs_grep(
         .unwrap_or(DEFAULT_MAX_RESULTS)
         .clamp(1, HARD_MAX_RESULTS);
 
+    // Literal mode treats the pattern as plain text (for interactive folder
+    // search); otherwise it's a regex supplied by a trusted caller.
+    let effective = if literal.unwrap_or(false) {
+        escape_literal(&pattern)
+    } else {
+        pattern.clone()
+    };
     let matcher = RegexMatcherBuilder::new()
         .case_insensitive(case_insensitive.unwrap_or(false))
         .line_terminator(Some(b'\n'))
-        .build(&pattern)
+        .build(&effective)
         .map_err(|e| format!("bad regex: {e}"))?;
 
     let globs = build_globset(glob.as_deref().unwrap_or(&[]))?;
@@ -367,5 +375,43 @@ mod tests {
         let stopped =
             search_tree(dir.path(), &root_display, &ws, &matcher, &None, 100, &|| true);
         assert!(stopped.hits.is_empty(), "cancelled search yields nothing");
+    }
+
+    #[test]
+    fn fs_grep_literal_treats_meta_chars_as_text() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.txt"), "a.c literal\nabc regex\n").unwrap();
+        let root = dir.path().to_string_lossy().to_string();
+
+        let literal = fs_grep(
+            "a.c".into(),
+            root.clone(),
+            None,
+            None,
+            Some(true),
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(literal.hits.len(), 1, "literal mode matches only the exact text");
+        assert!(literal.hits[0].text.contains("a.c literal"));
+
+        let regex = fs_grep("a.c".into(), root, None, None, None, None, None).unwrap();
+        assert_eq!(regex.hits.len(), 2, "regex mode treats '.' as any char");
+    }
+
+    #[test]
+    fn fs_grep_case_insensitive_flag() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.txt"), "Hello World\n").unwrap();
+        let root = dir.path().to_string_lossy().to_string();
+
+        let sensitive =
+            fs_grep("hello".into(), root.clone(), None, None, Some(true), None, None).unwrap();
+        assert!(sensitive.hits.is_empty(), "case-sensitive search misses Hello");
+
+        let insensitive =
+            fs_grep("hello".into(), root, None, Some(true), Some(true), None, None).unwrap();
+        assert_eq!(insensitive.hits.len(), 1, "case-insensitive search finds Hello");
     }
 }
