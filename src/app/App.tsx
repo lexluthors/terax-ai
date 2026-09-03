@@ -36,7 +36,7 @@ import {
   useApplyEditorFontSize,
   useEditorFileSync,
 } from "@/modules/editor";
-import { FileExplorer, type FileExplorerHandle } from "@/modules/explorer";
+import { FileExplorer, FolderSearchPanel, type FileExplorerHandle } from "@/modules/explorer";
 import type { GitHistorySearchHandle } from "@/modules/git-history";
 import {
   Header,
@@ -738,6 +738,10 @@ export default function App() {
 
   const [zenMode, setZenMode] = useState(false);
 
+  // Search panel state
+  const [searchPanelOpen, setSearchPanelOpen] = useState(false);
+  const [searchFolderPath, setSearchFolderPath] = useState<string | null>(null);
+
   // Focus an agent's tab, switching to its space first so the header and tab
   // strip don't end up showing a different space than the focused pane.
   const activateAgentTarget = useCallback(
@@ -1282,6 +1286,9 @@ export default function App() {
                         onRevealInTerminal={cdInNewTab}
                         onAttachToAgent={handleAttachFileToAgent}
                         pathDropTarget={terminalPathDropTarget}
+                        searchPanelOpen={searchPanelOpen}
+                        onToggleSearchPanel={setSearchPanelOpen}
+                        onSearchInFolder={setSearchFolderPath}
                       />
                     ) : (
                       <SourceControlPanel
@@ -1301,6 +1308,25 @@ export default function App() {
                   />
                 </div>
               </ResizablePanel>
+              {searchPanelOpen && (
+                <>
+                  <ResizableHandle withHandle />
+                  <ResizablePanel
+                    id="search-panel"
+                    defaultSize="18%"
+                    minSize="12%"
+                    maxSize="40%"
+                  >
+                    <FolderSearchPanel
+                      rootPath={explorerRoot}
+                      initialFolder={searchFolderPath}
+                      onOpenHit={(path, line) => {
+                        openContentHit(path, line);
+                      }}
+                    />
+                  </ResizablePanel>
+                </>
+              )}
               <ResizableHandle withHandle />
               <ResizablePanel id="workspace" defaultSize="78%" minSize="30%">
                 <div className="flex h-full min-h-0 flex-col">

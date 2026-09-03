@@ -79,6 +79,10 @@ type Props = {
   onAttachToAgent?: (path: string) => void;
   pathDropTarget?: TerminalPathDropTarget;
   gitStatus?: GitStatusSnapshot | null;
+  // Search panel callbacks
+  onToggleSearchPanel?: (open: boolean) => void;
+  onSearchInFolder?: (folderPath: string) => void;
+  searchPanelOpen?: boolean;
 };
 
 type Row =
@@ -218,6 +222,9 @@ export const FileExplorer = memo(
       onAttachToAgent,
       pathDropTarget,
       gitStatus,
+      onToggleSearchPanel,
+      onSearchInFolder,
+      searchPanelOpen,
     },
     ref,
   ) {
@@ -694,6 +701,18 @@ export const FileExplorer = memo(
           >
             <HugeiconsIcon icon={Refresh01Icon} size={12} strokeWidth={2} />
           </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              "size-6 text-muted-foreground hover:text-foreground",
+              searchPanelOpen && "bg-accent text-foreground",
+            )}
+            onClick={() => onToggleSearchPanel?.(!searchPanelOpen)}
+            title="Toggle search panel"
+          >
+            <HugeiconsIcon icon={Search01Icon} size={13} strokeWidth={2} />
+          </Button>
         </div>
 
         <ExplorerSearch
@@ -864,7 +883,14 @@ export const FileExplorer = memo(
                   {menuTarget.isDir && (
                     <ContextMenuItem
                       className={COMPACT_ITEM}
-                      onSelect={() => setSearchFolder(menuTarget.path)}
+                      onSelect={() => {
+                        if (onSearchInFolder) {
+                          onSearchInFolder(menuTarget.path);
+                          onToggleSearchPanel?.(true);
+                        } else {
+                          setSearchFolder(menuTarget.path);
+                        }
+                      }}
                     >
                       <HugeiconsIcon icon={Search01Icon} size={14} />
                       <span className="ml-1.5">Search in Folder</span>
