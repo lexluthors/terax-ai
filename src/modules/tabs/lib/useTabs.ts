@@ -993,6 +993,70 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     for (const lid of toDispose) disposeSession(lid);
   }, []);
 
+  const closeOtherTabs = useCallback((id: number) => {
+    let toDispose: number[] = [];
+    setTabs((curr) => {
+      const target = curr.find((t) => t.id === id);
+      if (!target) return curr;
+      const sameSpace = curr.filter((t) => t.spaceId === target.spaceId);
+      if (sameSpace.length <= 1) return curr;
+      const toClose = sameSpace.filter((t) => t.id !== id);
+      for (const t of toClose) {
+        if (t.kind === "terminal") {
+          toDispose.push(...leafIds(t.paneTree));
+        }
+      }
+      const next = curr.filter((t) => t.spaceId !== target.spaceId || t.id === id);
+      setActiveId(id);
+      return next;
+    });
+    for (const lid of toDispose) disposeSession(lid);
+  }, []);
+
+  const closeTabsToLeft = useCallback((id: number) => {
+    let toDispose: number[] = [];
+    setTabs((curr) => {
+      const target = curr.find((t) => t.id === id);
+      if (!target) return curr;
+      const sameSpace = curr.filter((t) => t.spaceId === target.spaceId);
+      const targetIdx = sameSpace.findIndex((t) => t.id === id);
+      if (targetIdx <= 0) return curr;
+      const toClose = sameSpace.slice(0, targetIdx);
+      for (const t of toClose) {
+        if (t.kind === "terminal") {
+          toDispose.push(...leafIds(t.paneTree));
+        }
+      }
+      const closeIds = new Set(toClose.map((t) => t.id));
+      const next = curr.filter((t) => !closeIds.has(t.id));
+      setActiveId(id);
+      return next;
+    });
+    for (const lid of toDispose) disposeSession(lid);
+  }, []);
+
+  const closeTabsToRight = useCallback((id: number) => {
+    let toDispose: number[] = [];
+    setTabs((curr) => {
+      const target = curr.find((t) => t.id === id);
+      if (!target) return curr;
+      const sameSpace = curr.filter((t) => t.spaceId === target.spaceId);
+      const targetIdx = sameSpace.findIndex((t) => t.id === id);
+      if (targetIdx >= sameSpace.length - 1) return curr;
+      const toClose = sameSpace.slice(targetIdx + 1);
+      for (const t of toClose) {
+        if (t.kind === "terminal") {
+          toDispose.push(...leafIds(t.paneTree));
+        }
+      }
+      const closeIds = new Set(toClose.map((t) => t.id));
+      const next = curr.filter((t) => !closeIds.has(t.id));
+      setActiveId(id);
+      return next;
+    });
+    for (const lid of toDispose) disposeSession(lid);
+  }, []);
+
   const updateTab = useCallback((id: number, patch: TabPatch) => {
     setTabs((t) =>
       t.map((x) => {
@@ -1269,6 +1333,9 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     setAiDiffStatus,
     closeAiDiffTab,
     closeTab,
+    closeOtherTabs,
+    closeTabsToLeft,
+    closeTabsToRight,
     updateTab,
     selectByIndex,
     setLeafCwd,

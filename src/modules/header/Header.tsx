@@ -36,6 +36,9 @@ type Props = {
   onNewGitGraph: () => void;
   onLaunchAgents: (request: AgentLaunchRequest) => void;
   onClose: (id: number) => void;
+  onCloseOthers?: (id: number) => void;
+  onCloseLeft?: (id: number) => void;
+  onCloseRight?: (id: number) => void;
   /** Promote a preview (transient) tab to persistent. */
   onPin: (id: number) => void;
   /** Set a terminal tab's custom label; empty string resets to default. */
@@ -67,6 +70,9 @@ export function Header({
   onNewGitGraph,
   onLaunchAgents,
   onClose,
+  onCloseOthers,
+  onCloseLeft,
+  onCloseRight,
   onPin,
   onRename,
   onReorder,
@@ -164,6 +170,9 @@ export function Header({
           onNewGitGraph={onNewGitGraph}
           onLaunchAgents={onLaunchAgents}
           onClose={onClose}
+          onCloseOthers={onCloseOthers}
+          onCloseLeft={onCloseLeft}
+          onCloseRight={onCloseRight}
           onPin={onPin}
           onRename={onRename}
           onReorder={onReorder}

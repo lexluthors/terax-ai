@@ -142,6 +142,9 @@ export default function App() {
     openCommitHistoryTab,
     openCommitFileDiffTab,
     closeTab,
+    closeOtherTabs,
+    closeTabsToLeft,
+    closeTabsToRight,
     updateTab,
     selectByIndex,
     setLeafCwd,
@@ -1229,6 +1232,9 @@ export default function App() {
               onNewGitGraph={openGitGraphFromContext}
               onLaunchAgents={launchAgentGroup}
               onClose={handleClose}
+              onCloseOthers={closeOtherTabs}
+              onCloseLeft={closeTabsToLeft}
+              onCloseRight={closeTabsToRight}
               onPin={pinTab}
               onRename={handleRenameTab}
               onReorder={reorderTabByGap}

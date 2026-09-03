@@ -65,6 +65,9 @@ type Props = {
   onNewGitGraph: () => void;
   onLaunchAgents: (request: AgentLaunchRequest) => void;
   onClose: (id: number) => void;
+  onCloseOthers?: (id: number) => void;
+  onCloseLeft?: (id: number) => void;
+  onCloseRight?: (id: number) => void;
   /** Pin (promote) a preview tab to persistent on double-click. */
   onPin: (id: number) => void;
   /** Set a terminal tab's custom label; empty string resets to default. */
@@ -87,6 +90,9 @@ export function TabBar({
   onNewGitGraph,
   onLaunchAgents,
   onClose,
+  onCloseOthers,
+  onCloseLeft,
+  onCloseRight,
   onPin,
   onRename,
   onReorder,
@@ -199,20 +205,20 @@ export function TabBar({
   }, [activeId]);
 
   return (
-    <div
-      ref={scrollRef}
-      data-tauri-drag-region
-      className="min-w-0 shrink overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-    >
-      <div className="flex w-max items-center gap-0.5">
-        <Tabs
-          value={String(activeId)}
-          onValueChange={(v) => onSelect(Number(v))}
-        >
-          <TabsList
-            ref={listRef}
-            className="relative h-7 w-max gap-0.5 bg-transparent p-0"
+    <div className="flex min-w-0 shrink items-center" data-tauri-drag-region>
+      <div
+        ref={scrollRef}
+        className="min-w-0 shrink overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        <div className="flex w-max items-center gap-0.5">
+          <Tabs
+            value={String(activeId)}
+            onValueChange={(v) => onSelect(Number(v))}
           >
+            <TabsList
+              ref={listRef}
+              className="relative h-7 w-max gap-0.5 bg-transparent p-0"
+            >
             <span
               aria-hidden
               className="pointer-events-none absolute left-0 top-1/2 h-7 rounded-md bg-foreground/[0.07] shadow-sm ring-1 ring-inset ring-foreground/[0.05]"
@@ -235,6 +241,8 @@ export function TabBar({
                 (t.kind === "editor" || t.kind === "git-diff") && t.preview;
               const isActive = t.id === activeId;
               const isNew = !firstRender && !seen.has(t.id);
+              const hasLeftTabs = i > 0;
+              const hasRightTabs = i < tabs.length - 1;
 
               const srcIndex = tabs.findIndex((x) => x.id === draggingId);
               const showGap = (gap: number) =>
@@ -485,14 +493,14 @@ export function TabBar({
                 </TabsTrigger>
               );
 
-              const tabNode =
-                t.kind === "terminal" ? (
-                  <ContextMenu>
-                    <ContextMenuTrigger asChild>{trigger}</ContextMenuTrigger>
-                    <ContextMenuContent
-                      className="min-w-32 p-1"
-                      onCloseAutoFocus={(e) => e.preventDefault()}
-                    >
+              const tabNode = (
+                <ContextMenu>
+                  <ContextMenuTrigger asChild>{trigger}</ContextMenuTrigger>
+                  <ContextMenuContent
+                    className="min-w-32 p-1"
+                    onCloseAutoFocus={(e) => e.preventDefault()}
+                  >
+                    {t.kind === "terminal" && (
                       <ContextMenuItem
                         className="gap-2 rounded-xl px-2.5 py-1.5 text-[13px]"
                         onSelect={() => setEditingId(t.id)}
@@ -504,27 +512,47 @@ export function TabBar({
                         />
                         <span className="flex-1">Rename</span>
                       </ContextMenuItem>
-                      {tabs.length > 1 && (
-                        <>
-                          <ContextMenuSeparator />
-                          <ContextMenuItem
-                            className="gap-2 rounded-xl px-2.5 py-1.5 text-[13px]"
-                            onSelect={() => onClose(t.id)}
-                          >
-                            <HugeiconsIcon
-                              icon={Cancel01Icon}
-                              size={13}
-                              strokeWidth={1.75}
-                            />
-                            <span className="flex-1">Close</span>
-                          </ContextMenuItem>
-                        </>
-                      )}
-                    </ContextMenuContent>
-                  </ContextMenu>
-                ) : (
-                  trigger
-                );
+                    )}
+                    {tabs.length > 1 && (
+                      <>
+                        {t.kind === "terminal" && <ContextMenuSeparator />}
+                        <ContextMenuItem
+                          className="gap-2 rounded-xl px-2.5 py-1.5 text-[13px]"
+                          onSelect={() => onClose(t.id)}
+                        >
+                          <HugeiconsIcon
+                            icon={Cancel01Icon}
+                            size={13}
+                            strokeWidth={1.75}
+                          />
+                          <span className="flex-1">Close</span>
+                        </ContextMenuItem>
+                        <ContextMenuItem
+                          className="gap-2 rounded-xl px-2.5 py-1.5 text-[13px]"
+                          onSelect={() => onCloseOthers?.(t.id)}
+                          disabled={!onCloseOthers}
+                        >
+                          <span className="flex-1">Close Others</span>
+                        </ContextMenuItem>
+                        <ContextMenuItem
+                          className="gap-2 rounded-xl px-2.5 py-1.5 text-[13px]"
+                          onSelect={() => onCloseLeft?.(t.id)}
+                          disabled={!onCloseLeft || !hasLeftTabs}
+                        >
+                          <span className="flex-1">Close to Left</span>
+                        </ContextMenuItem>
+                        <ContextMenuItem
+                          className="gap-2 rounded-xl px-2.5 py-1.5 text-[13px]"
+                          onSelect={() => onCloseRight?.(t.id)}
+                          disabled={!onCloseRight || !hasRightTabs}
+                        >
+                          <span className="flex-1">Close to Right</span>
+                        </ContextMenuItem>
+                      </>
+                    )}
+                  </ContextMenuContent>
+                </ContextMenu>
+              );
 
               return (
                 <Fragment key={t.id}>
@@ -538,16 +566,17 @@ export function TabBar({
             })}
           </TabsList>
         </Tabs>
-        <NewTabMenu
-          onNew={onNew}
-          onNewBlock={onNewBlock}
-          onNewPrivate={onNewPrivate}
-          onNewPreview={onNewPreview}
-          onNewEditor={onNewEditor}
-          onNewGitGraph={onNewGitGraph}
-          onLaunchAgents={onLaunchAgents}
-        />
+        </div>
       </div>
+      <NewTabMenu
+        onNew={onNew}
+        onNewBlock={onNewBlock}
+        onNewPrivate={onNewPrivate}
+        onNewPreview={onNewPreview}
+        onNewEditor={onNewEditor}
+        onNewGitGraph={onNewGitGraph}
+        onLaunchAgents={onLaunchAgents}
+      />
     </div>
   );
 }
