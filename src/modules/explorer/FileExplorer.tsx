@@ -420,16 +420,41 @@ export const FileExplorer = memo(
     useEffect(() => {
       if (
         !activeFilePath ||
+        !rootPath ||
         activeFilePath === lastSyncedActivePathRef.current
       ) {
         return;
       }
-      if (!entryIndexByPath.has(activeFilePath)) return;
+      // If the file is not yet visible, expand ancestor directories so it
+      // becomes visible. We read tree.expanded without listing it as a dep
+      // because entryIndexByPath already re-computes whenever it changes.
+      if (!entryIndexByPath.has(activeFilePath)) {
+        let needsExpansion = false;
+        let cursor = parentOf(activeFilePath, rootPath);
+        while (cursor && cursor !== rootPath) {
+          if (!tree.expanded.has(cursor)) {
+            tree.expand(cursor);
+            needsExpansion = true;
+          }
+          cursor = parentOf(cursor, rootPath);
+        }
+        if (needsExpansion) return;
+        // Ancestors already expanded but file still absent (parent still
+        // loading); wait for the next entryIndexByPath update.
+        return;
+      }
       lastSyncedActivePathRef.current = activeFilePath;
       setSelectedPath(activeFilePath);
       setSelectedPaths(new Set([activeFilePath]));
       requestAnimationFrame(() => scrollEntryIntoView(activeFilePath));
-    }, [activeFilePath, entryIndexByPath, scrollEntryIntoView]);
+    }, [
+      activeFilePath,
+      rootPath,
+      entryIndexByPath,
+      scrollEntryIntoView,
+      tree.expand,
+      tree.expanded,
+    ]);
 
     useImperativeHandle(
       ref,

@@ -662,10 +662,11 @@ export default function App() {
     }
     return null;
   })();
-  const explorerActiveFilePath =
-    activeTab?.kind === "editor" || activeTab?.kind === "markdown"
-      ? activeTab.path
-      : null;
+  const explorerActiveFilePath = (() => {
+    if (!activeTab) return null;
+    if ("path" in activeTab && activeTab.path) return activeTab.path;
+    return null;
+  })();
   const { sourceControl, toggleSourceControl, openGitGraphFromContext } =
     useSourceControlContext({
       activeTab,
