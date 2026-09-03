@@ -26,10 +26,16 @@ const MAX_RESULTS = 500;
 
 // Search history management
 const HISTORY_KEY = "folder-search-history";
+const QUERY_HISTORY_KEY = "folder-search-query-history";
 const MAX_HISTORY = 20;
 
 type SearchHistoryItem = {
   path: string;
+  lastUsed: number;
+};
+
+type QueryHistoryItem = {
+  query: string;
   lastUsed: number;
 };
 
@@ -72,6 +78,42 @@ function getLastUsedPath(): string | null {
   return history.length > 0 ? history[0].path : null;
 }
 
+// Query history management
+function loadQueryHistory(): QueryHistoryItem[] {
+  try {
+    const raw = localStorage.getItem(QUERY_HISTORY_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw) as QueryHistoryItem[];
+  } catch {
+    return [];
+  }
+}
+
+function saveQueryHistory(history: QueryHistoryItem[]): void {
+  try {
+    localStorage.setItem(QUERY_HISTORY_KEY, JSON.stringify(history));
+  } catch {
+    // ignore
+  }
+}
+
+function addToQueryHistory(query: string): QueryHistoryItem[] {
+  const trimmed = query.trim();
+  if (!trimmed) return loadQueryHistory();
+  const history = loadQueryHistory();
+  const existing = history.findIndex((h) => h.query === trimmed);
+  if (existing >= 0) {
+    history[existing].lastUsed = Date.now();
+  } else {
+    history.push({ query: trimmed, lastUsed: Date.now() });
+  }
+  const sorted = history
+    .sort((a, b) => b.lastUsed - a.lastUsed)
+    .slice(0, MAX_HISTORY);
+  saveQueryHistory(sorted);
+  return sorted;
+}
+
 type Props = {
   rootPath: string | null;
   initialFolder: string | null;
@@ -94,10 +136,13 @@ export function FolderSearchPanel({
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<SearchHistoryItem[]>(loadSearchHistory);
+  const [showQueryHistory, setShowQueryHistory] = useState(false);
+  const [queryHistory, setQueryHistory] = useState<QueryHistoryItem[]>(loadQueryHistory);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const historyRef = useRef<HTMLDivElement>(null);
+  const queryHistoryRef = useRef<HTMLDivElement>(null);
 
   // Update folder when initialFolder changes (from right-click)
   useEffect(() => {
@@ -107,18 +152,21 @@ export function FolderSearchPanel({
     }
   }, [initialFolder]);
 
-  // Close history dropdown when clicking outside
+  // Close history dropdowns when clicking outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (historyRef.current && !historyRef.current.contains(e.target as Node)) {
         setShowHistory(false);
       }
+      if (queryHistoryRef.current && !queryHistoryRef.current.contains(e.target as Node)) {
+        setShowQueryHistory(false);
+      }
     };
-    if (showHistory) {
+    if (showHistory || showQueryHistory) {
       document.addEventListener("mousedown", handleClickOutside);
       return () => document.removeEventListener("mousedown", handleClickOutside);
     }
-  }, [showHistory]);
+  }, [showHistory, showQueryHistory]);
 
   // Search effect
   useEffect(() => {
@@ -129,6 +177,9 @@ export function FolderSearchPanel({
       setTruncated(false);
       return;
     }
+    // Save query to history
+    addToQueryHistory(q);
+    setQueryHistory(loadQueryHistory());
     setSearching(true);
     let alive = true;
     const timer = setTimeout(async () => {
@@ -264,7 +315,7 @@ export function FolderSearchPanel({
       </div>
 
       {/* Search input */}
-      <div className="relative shrink-0 border-b border-border/40 p-2">
+      <div className="relative shrink-0 border-b border-border/40 p-2" ref={queryHistoryRef}>
         <div className="relative">
           <HugeiconsIcon
             icon={Search01Icon}
@@ -279,13 +330,21 @@ export function FolderSearchPanel({
             onKeyDown={(e) => {
               if (e.key === "Escape") {
                 e.preventDefault();
+                setShowQueryHistory(false);
                 setQuery("");
                 return;
               }
               if (e.key === "Enter" && groups.length > 0) {
                 e.preventDefault();
+                setShowQueryHistory(false);
                 handleSelect(selectedIndex);
                 return;
+              }
+              if (showQueryHistory && queryHistory.length > 0) {
+                if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                  e.preventDefault();
+                  return;
+                }
               }
               if (groups.length > 0) {
                 if (e.key === "ArrowDown") {
@@ -314,6 +373,22 @@ export function FolderSearchPanel({
           ) : null}
           <button
             type="button"
+            onClick={() => setShowQueryHistory(!showQueryHistory)}
+            className={cn(
+              "absolute top-1/2 right-16 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground",
+              showQueryHistory && "bg-accent text-foreground",
+            )}
+            aria-label="Search history"
+            title="Search history"
+          >
+            <HugeiconsIcon
+              icon={ChevronDownIcon}
+              size={11}
+              className={cn("transition-transform", showQueryHistory && "rotate-180")}
+            />
+          </button>
+          <button
+            type="button"
             aria-pressed={caseSensitive}
             aria-label="Match case"
             title="Match case"
@@ -328,6 +403,41 @@ export function FolderSearchPanel({
             Aa
           </button>
         </div>
+
+        {/* Query history dropdown */}
+        {showQueryHistory && (
+          <div className="absolute left-2 right-2 top-full z-50 mt-1 max-h-48 overflow-y-auto rounded-md border border-border bg-popover shadow-md">
+            {queryHistory.length === 0 ? (
+              <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                No search history
+              </div>
+            ) : (
+              queryHistory.map((item) => (
+                <button
+                  key={item.query}
+                  type="button"
+                  onClick={() => {
+                    setQuery(item.query);
+                    setShowQueryHistory(false);
+                    inputRef.current?.focus();
+                  }}
+                  className={cn(
+                    "flex w-full items-center px-2 py-1 text-left text-xs hover:bg-accent",
+                    item.query === query && "bg-accent",
+                  )}
+                  title={item.query}
+                >
+                  <HugeiconsIcon
+                    icon={Search01Icon}
+                    size={11}
+                    className="mr-1.5 shrink-0 text-muted-foreground"
+                  />
+                  <span className="min-w-0 truncate">{item.query}</span>
+                </button>
+              ))
+            )}
+          </div>
+        )}
       </div>
 
       {/* Results */}
